@@ -198,7 +198,10 @@ func main() {
 	if command == LIST {
 		handleListCommand(filePath)
 	} else if command == REFRESH {
-		handleRefresh(filePath)
+		err := handleRefresh(filePath)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 
 }
