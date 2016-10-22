@@ -7,17 +7,23 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 )
 
 var LIST = "list_shows"
+var timeFormat = "Mon, 02 Jan 2006"
+
+var currentTime = time.Now()
+var currentYear = strconv.Itoa(currentTime.Year())
 
 type Show struct {
 	Name string
 }
 
 type DayEntries struct {
-	Date  string
+	Date  time.Time
 	Shows []Show
 }
 
@@ -36,15 +42,20 @@ func getPageBody(path string) (string, error) {
 func showName(input string) string {
 	showNameComponents := strings.Split(input, " ")
 	return strings.Join(showNameComponents[0:len(showNameComponents)-1], " ")
-
 }
 
-func obtainDayEntries(doc *goquery.Document) []DayEntries {
+func obtainDayEntries(doc *goquery.Document) ([]DayEntries, error) {
 	daysElements := doc.Find(".day")
 	days := make([]DayEntries, daysElements.Size())
+	var elementError error = nil
 
 	daysElements.Each(func(i int, s *goquery.Selection) {
-		date := s.Find(".date").Text()
+		textAttribute := strings.Replace(s.Find(".date").Text(), ".", "", 1) + " " + currentYear
+		date, err := time.Parse(timeFormat, textAttribute)
+
+		if err != nil {
+			elementError = err
+		}
 
 		titles := s.Find(".title")
 		shows := make([]Show, titles.Size())
@@ -58,8 +69,27 @@ func obtainDayEntries(doc *goquery.Document) []DayEntries {
 		days = append(days, dayEntries)
 	})
 
-	return days
+	return days, elementError
 
+}
+
+func buildShowReleaseDates(dayReleases []DayEntries) map[string]time.Time {
+	releaseMap := make(map[string]time.Time)
+
+	for _, element := range dayReleases {
+		date := element.Date
+		for _, show := range element.Shows {
+			showName := showName(show.Name)
+			_, ok := releaseMap[showName]
+			if !ok {
+				if date.After(currentTime) {
+					releaseMap[showName] = date
+				}
+			}
+		}
+	}
+
+	return releaseMap
 }
 
 func obtainShowNames(doc *goquery.Document) []Show {
@@ -82,12 +112,12 @@ func obtainShowNames(doc *goquery.Document) []Show {
 	return shows
 }
 
-func buildAlfredResponseWithShowNames(input []Show) (string, error) {
-	for _, item := range input {
+func buildAlfredResponseWithShowNames(input map[string]time.Time) (string, error) {
+	for showName, showDate := range input {
 		alfred.AddItem(alfred.Item{
-			Title:    item.Name,
-			Subtitle: item.Name,
-			Arg:      item.Name,
+			Title:    showName,
+			Subtitle: showDate.Format(timeFormat),
+			Arg:      showName,
 			Icon: alfred.Icon{
 				Type: "filetype",
 				Path: "public.png",
@@ -98,36 +128,54 @@ func buildAlfredResponseWithShowNames(input []Show) (string, error) {
 	return alfred.JSON()
 }
 
+func handleListCommand(filePath string) {
+	pageContent, err := getPageBody(filePath)
+	// doc, err := goquery.NewDocument("http://airdates.tv")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	reader := strings.NewReader(pageContent)
+	doc, err := goquery.NewDocumentFromReader(reader)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	de, err := obtainDayEntries(doc)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	releaseDates := buildShowReleaseDates(de)
+
+	// fmt.Println(releaseDates)
+	// showNames := obtainShowNames(doc)
+	alfredResp, err := buildAlfredResponseWithShowNames(releaseDates)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+
+	fmt.Println(alfredResp)
+}
+
 func main() {
 	args := os.Args[1:]
 	command := ""
 
-	if len(args) != 1 {
+	if len(args) == 0 {
+		log.Fatalf("need at least a file")
+	}
+
+	filePath := args[0]
+
+	if len(args) != 2 {
 		command = LIST
 	}
 
 	if command == LIST {
-		pageContent, err := getPageBody("airdates.html")
-		// doc, err := goquery.NewDocument("http://airdates.tv")
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		reader := strings.NewReader(pageContent)
-		doc, err := goquery.NewDocumentFromReader(reader)
-
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		showNames := obtainShowNames(doc)
-		alfredResp, err := buildAlfredResponseWithShowNames(showNames)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		fmt.Println(alfredResp)
-
+		handleListCommand(filePath)
 	}
 
 }
