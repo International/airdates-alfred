@@ -13,6 +13,7 @@ import (
 )
 
 var LIST = "list_shows"
+var REFRESH = "refresh"
 var timeFormat = "Mon, 02 Jan 2006"
 
 var currentTime = time.Now()
@@ -160,22 +161,44 @@ func handleListCommand(filePath string) {
 	fmt.Println(alfredResp)
 }
 
+func handleRefresh(filePath string) error {
+	log.Println("refreshing")
+	doc, err := goquery.NewDocument("http://airdates.tv")
+	if err != nil {
+		return err
+	}
+
+	fileHandle, err := os.Create(filePath)
+	defer fileHandle.Close()
+
+	if err != nil {
+		return err
+	}
+
+	htmlString, err := doc.Html()
+	if err != nil {
+		return err
+	}
+	content := []byte(htmlString)
+
+	_, err = fileHandle.Write(content)
+	return err
+}
+
 func main() {
 	args := os.Args[1:]
-	command := ""
 
-	if len(args) == 0 {
-		log.Fatalf("need at least a file")
+	if len(args) != 2 {
+		log.Fatalf("need path to file, and command")
 	}
 
 	filePath := args[0]
-
-	if len(args) != 2 {
-		command = LIST
-	}
+	command := args[1]
 
 	if command == LIST {
 		handleListCommand(filePath)
+	} else if command == REFRESH {
+		handleRefresh(filePath)
 	}
 
 }
